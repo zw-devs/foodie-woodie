@@ -1,3 +1,8 @@
-const fs=require('fs')
-const z=fs.readFileSync('sample.txt','utf8')
-console.log(z);
+function x(){
+    let name="haris";
+    function y(){
+        console.log("Hello ",name);
+    }
+    return y();
+}
+let z=x();
