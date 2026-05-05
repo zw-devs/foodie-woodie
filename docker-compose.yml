@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: foodie_woodie_app
+    ports:
+      - '3000:3000'
+    volumes:
+      # Syncs your local code to the container so nodemon can auto-restart
+      - .:/app
+      # Prevents your local node_modules from overriding the container's linux-based ones
+      - /app/node_modules
+    environment:
+      - PORT=3000
+      # Points to the 'db' service created below
+      - DATABASE_URL=postgresql://postgres:supersecretpassword@db:5432/foodpanda_db?schema=public
+    depends_on:
+      - db
+
+  db:
+    image: postgres:15-alpine
+    container_name: foodie_woodie_db
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: supersecretpassword
+      POSTGRES_DB: foodpanda_db
+    ports:
+      # Maps the database port to your local machine so you can inspect it later
+      - '5432:5432'
+    volumes:
+      # Saves your database data permanently so it doesn't wipe on restart
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:

@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// --- ENUMS ---
+enum Role {
+  admin
+  customer
+  restaurant_owner
+  home_chef
+  delivery_rider
+}
+
+enum DeliveryPriority {
+  fast
+  save_money
+}
+
+enum OwnerType {
+  restaurant_owner
+  home_chef
+}
+
+// --- MODELS ---
+
+model User {
+  id                String            @id @default(uuid())
+  username          String
+  email             String            @unique
+  password_hash     String
+  role              Role              @default(customer)
+  phone             String?
+  delivery_address  String?
+  delivery_priority DeliveryPriority?
+  wallet_balance    Float             @default(0.0)
+  created_at        DateTime          @default(now())
+
+  // Relations
+  restaurants       Restaurant[]      @relation("UserRestaurants")
+  
+  @@map("users") // Best practice: lowercase table names in Postgres
+}
+
+model Restaurant {
+  id                   String    @id @default(uuid())
+  owner_id             String
+  owner_type           OwnerType
+  name                 String
+  address              String
+  latitude             Float?
+  longitude            Float?
+  area_zone            String?
+  opening_time         DateTime? @db.Time()
+  closing_time         DateTime? @db.Time()
+  closing_discount_pct Int?      // e.g., 10-30%
+  is_active            Boolean   @default(true)
+  created_at           DateTime  @default(now())
+
+  // Relations
+  owner                User      @relation("UserRestaurants", fields: [owner_id], references: [id])
+
+  @@map("restaurants")
+}
