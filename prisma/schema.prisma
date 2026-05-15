@@ -7,7 +7,10 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// --- ENUMS ---
+// ============================================================
+// ENUMS
+// ============================================================
+
 enum Role {
   admin
   customer
@@ -16,40 +19,134 @@ enum Role {
   delivery_rider
 }
 
-enum DeliveryPriority {
-  fast
-  save_money
-}
-
 enum OwnerType {
   restaurant_owner
   home_chef
 }
 
-// --- MODELS ---
+enum DeliveryPriority {
+  fast
+  save_money
+}
+
+enum MenuType {
+  breakfast
+  lunch_dinner
+}
+
+enum OrderStatus {
+  pending
+  confirmed
+  preparing
+  picked_up
+  delivered
+  cancelled
+}
+
+enum RiderStatus {
+  assigned
+  picked_up
+  delivered
+}
+
+enum DiscountType {
+  closing_time
+  streak
+}
+
+enum MoodType {
+  lazy
+  active
+  stressed
+  happy
+  adventurous
+}
+
+enum GroupSessionStatus {
+  open
+  finalized
+  ordered
+}
+
+enum StreakType {
+  healthy
+  fastfood
+}
+
+enum AvailabilityStatus {
+  online
+  offline
+  busy
+}
+
+// ============================================================
+// USERS & ROLE PROFILES
+// ============================================================
 
 model User {
-  id                String            @id @default(uuid())
-  username          String
-  email             String            @unique
-  password_hash     String
-  role              Role              @default(customer)
-  phone             String?
-  delivery_address  String?
-  delivery_priority DeliveryPriority?
-  wallet_balance    Float             @default(0.0)
-  created_at        DateTime          @default(now())
+  id               String           @id @default(uuid())
+  username         String
+  email            String           @unique
+  password_hash    String
+  role             Role             @default(customer)
+  phone            String?
+  wallet_balance   Float            @default(0.0)
+  created_at       DateTime         @default(now())
 
-  // Relations
-  restaurants       Restaurant[]      @relation("UserRestaurants")
-  
-  @@map("users") // Best practice: lowercase table names in Postgres
+  rider_profile    RiderProfile?
+  owner_profile    OwnerProfile?
+  customer_profile CustomerProfile?
+
+  restaurants       Restaurant[]      @relation("OwnerRestaurants")
+  orders            Order[]           @relation("CustomerOrders")
+  rider_assignments RiderAssignment[]
+  reviews           Review[]
+  streak            Streak?
+  budgets           UserBudget[]
+  mood_sessions     MoodSession[]
+  group_sessions    GroupSession[]    @relation("GroupCreator")
+  group_memberships GroupMember[]
+
+  @@map("users")
 }
+
+model RiderProfile {
+  user_id             String             @id
+  vehicle_type        String
+  availability_status AvailabilityStatus @default(offline)
+  current_orders      Int                @default(0)
+  max_orders          Int                @default(5)
+
+  user                User               @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("rider_profiles")
+}
+
+model OwnerProfile {
+  user_id    String    @id
+  owner_type OwnerType
+
+  user       User      @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("owner_profiles")
+}
+
+model CustomerProfile {
+  user_id         String  @id
+  default_address String?
+
+  user            User    @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("customer_profiles")
+}
+
+// ============================================================
+// RESTAURANTS
+// ============================================================
 
 model Restaurant {
   id                   String    @id @default(uuid())
   owner_id             String
-  owner_type           OwnerType
   name                 String
   address              String
   latitude             Float?
@@ -57,12 +154,287 @@ model Restaurant {
   area_zone            String?
   opening_time         DateTime? @db.Time()
   closing_time         DateTime? @db.Time()
-  closing_discount_pct Int?      // e.g., 10-30%
+  closing_discount_pct Int?
   is_active            Boolean   @default(true)
   created_at           DateTime  @default(now())
 
-  // Relations
-  owner                User      @relation("UserRestaurants", fields: [owner_id], references: [id])
+  owner            User                    @relation("OwnerRestaurants", fields: [owner_id], references: [id])
+  menus            Menu[]
+  orders           Order[]
+  reviews          Review[]
+  discounts        Discount[]
+  mood_mappings    RestaurantMoodMapping[]
+  mood_suggestions MoodSuggestion[]
+  group_sessions   GroupSession[]          @relation("SuggestedRestaurant")
 
   @@map("restaurants")
+}
+
+// ============================================================
+// MENUS, CATEGORIES, PRODUCTS
+// ============================================================
+
+model Menu {
+  id            String         @id @default(uuid())
+  restaurant_id String
+  menu_type     MenuType
+  is_active     Boolean        @default(true)
+
+  restaurant    Restaurant     @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
+  products      Product[]
+  categories    MenuCategory[]
+
+  @@map("menus")
+}
+
+model Category {
+  id                 String            @id @default(uuid())
+  name               String            @unique
+
+  menu_categories    MenuCategory[]
+  product_categories ProductCategory[]
+
+  @@map("categories")
+}
+
+model MenuCategory {
+  menu_id     String
+  category_id String
+
+  menu        Menu     @relation(fields: [menu_id], references: [id], onDelete: Cascade)
+  category    Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
+
+  @@id([menu_id, category_id])
+  @@map("menu_categories")
+}
+
+model Product {
+  id           String            @id @default(uuid())
+  menu_id      String
+  name         String
+  description  String?
+  price        Float
+  image_url    String?
+  calories     Int?
+  is_available Boolean           @default(true)
+  created_at   DateTime          @default(now())
+
+  menu         Menu              @relation(fields: [menu_id], references: [id], onDelete: Cascade)
+  categories   ProductCategory[]
+  order_items  OrderItem[]
+  reviews      Review[]
+
+  @@map("products")
+}
+
+model ProductCategory {
+  product_id  String
+  category_id String
+
+  product     Product  @relation(fields: [product_id], references: [id], onDelete: Cascade)
+  category    Category @relation(fields: [category_id], references: [id], onDelete: Cascade)
+
+  @@id([product_id, category_id])
+  @@map("product_categories")
+}
+
+// ============================================================
+// ORDERS
+// ============================================================
+
+model Order {
+  id                 String           @id @default(uuid())
+  customer_id        String
+  restaurant_id      String
+  status             OrderStatus      @default(pending)
+  priority           DeliveryPriority @default(fast)
+  total_amount       Float
+  discount_applied   Float            @default(0.0)
+  delivery_address   String
+  delivery_lat       Float?
+  delivery_lng       Float?
+  placed_at          DateTime         @default(now())
+  estimated_delivery DateTime?
+  delivered_at       DateTime?
+
+  customer          User              @relation("CustomerOrders", fields: [customer_id], references: [id])
+  restaurant        Restaurant        @relation(fields: [restaurant_id], references: [id])
+  order_items       OrderItem[]
+  rider_assignments RiderAssignment[]
+
+  @@map("orders")
+}
+
+model OrderItem {
+  id         String  @id @default(uuid())
+  order_id   String
+  product_id String
+  quantity   Int
+  unit_price Float
+
+  order      Order   @relation(fields: [order_id], references: [id], onDelete: Cascade)
+  product    Product @relation(fields: [product_id], references: [id])
+
+  @@map("order_items")
+}
+
+// ============================================================
+// RIDER ASSIGNMENTS
+// ============================================================
+
+model RiderAssignment {
+  id             String      @id @default(uuid())
+  rider_id       String
+  order_id       String
+  status         RiderStatus @default(assigned)
+  queue_position Int
+  assigned_at    DateTime    @default(now())
+  delivered_at   DateTime?
+
+  rider          User        @relation(fields: [rider_id], references: [id])
+  order          Order       @relation(fields: [order_id], references: [id], onDelete: Cascade)
+
+  @@map("rider_assignments")
+}
+
+// ============================================================
+// REVIEWS
+// ============================================================
+
+model Review {
+  id            String      @id @default(uuid())
+  user_id       String
+  product_id    String?
+  restaurant_id String?
+  rating        Int
+  comment       String?
+  created_at    DateTime    @default(now())
+
+  user          User        @relation(fields: [user_id], references: [id])
+  product       Product?    @relation(fields: [product_id], references: [id])
+  restaurant    Restaurant? @relation(fields: [restaurant_id], references: [id])
+
+  @@map("reviews")
+}
+
+// ============================================================
+// DISCOUNTS
+// ============================================================
+
+model Discount {
+  id            String       @id @default(uuid())
+  restaurant_id String
+  type          DiscountType
+  percentage    Float
+  valid_from    DateTime
+  valid_to      DateTime
+
+  restaurant    Restaurant   @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
+
+  @@map("discounts")
+}
+
+// ============================================================
+// STREAKS
+// ============================================================
+
+model Streak {
+  user_id         String     @id
+  current_streak  Int        @default(0)
+  last_order_date DateTime?
+  streak_type     StreakType @default(healthy)
+  discount_earned Float      @default(0.0)
+
+  user            User       @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@map("streaks")
+}
+
+// ============================================================
+// BUDGET
+// ============================================================
+
+model UserBudget {
+  id             String   @id @default(uuid())
+  user_id        String
+  month          Int
+  year           Int
+  monthly_budget Float
+  amount_spent   Float    @default(0.0)
+  updated_at     DateTime @updatedAt
+
+  user           User     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, month, year])
+  @@map("user_budgets")
+}
+
+// ============================================================
+// MOOD SYSTEM
+// ============================================================
+
+model MoodSession {
+  id          String           @id @default(uuid())
+  user_id     String
+  mood        MoodType
+  created_at  DateTime         @default(now())
+
+  user        User             @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  suggestions MoodSuggestion[]
+
+  @@map("mood_sessions")
+}
+
+model MoodSuggestion {
+  id              String      @id @default(uuid())
+  mood_session_id String
+  restaurant_id   String
+  score           Float
+
+  mood_session    MoodSession @relation(fields: [mood_session_id], references: [id], onDelete: Cascade)
+  restaurant      Restaurant  @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
+
+  @@map("mood_suggestions")
+}
+
+model RestaurantMoodMapping {
+  restaurant_id String
+  mood          MoodType
+
+  restaurant    Restaurant @relation(fields: [restaurant_id], references: [id], onDelete: Cascade)
+
+  @@id([restaurant_id, mood])
+  @@map("restaurant_mood_mappings")
+}
+
+// ============================================================
+// GROUP SESSION SYSTEM
+// ============================================================
+
+model GroupSession {
+  id                      String             @id @default(uuid())
+  created_by              String
+  status                  GroupSessionStatus @default(open)
+  final_mood              MoodType?
+  suggested_restaurant_id String?
+  created_at              DateTime           @default(now())
+
+  creator              User         @relation("GroupCreator", fields: [created_by], references: [id])
+  suggested_restaurant Restaurant?  @relation("SuggestedRestaurant", fields: [suggested_restaurant_id], references: [id])
+  members              GroupMember[]
+
+  @@map("group_sessions")
+}
+
+model GroupMember {
+  group_id  String
+  user_id   String
+  mood_vote MoodType?
+  is_friend Boolean      @default(false)
+
+  group     GroupSession @relation(fields: [group_id], references: [id], onDelete: Cascade)
+  user      User         @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([group_id, user_id])
+  @@map("group_members")
 }
