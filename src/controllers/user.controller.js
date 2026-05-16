@@ -1,8 +1,11 @@
 import prisma from "../lib/prisma";
 
-import { hashPassword, validateEmail, validatePassword, validateUsername } from '../utils/helper.js';
-
-const prisma = new PrismaClient();
+import {
+  hashPassword,
+  validateEmail,
+  validatePassword,
+  validateUsername,
+} from "../utils/helper.js";
 
 // ============== CREATE USER ==============
 export const createUser = async (req, res) => {
@@ -12,21 +15,34 @@ export const createUser = async (req, res) => {
     const validatedEmail = validateEmail(email);
     const validatedPassword = validatePassword(password);
 
-    const existing = await prisma.user.findUnique({ where: { email: validatedEmail } });
-    if (existing) return res.status(409).json({ success: false, message: 'Email already exists' });
+    const existing = await prisma.user.findUnique({
+      where: { email: validatedEmail },
+    });
+    if (existing)
+      return res
+        .status(409)
+        .json({ success: false, message: "Email already exists" });
 
     const user = await prisma.user.create({
       data: {
         email: validatedEmail,
         password: hashPassword(validatedPassword),
         username,
-        role: role?.toUpperCase() || 'USER'
+        role: role?.toUpperCase() || "USER",
       },
-      select: { id: true, email: true, username: true, role: true, isActive: true, createdAt: true }
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
     });
 
-    res.status(201).json({ success: true, message: 'User created', data: { user } });
-
+    res
+      .status(201)
+      .json({ success: true, message: "User created", data: { user } });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
@@ -40,30 +56,45 @@ export const getAllUsers = async (req, res) => {
     const where = {};
     if (search) {
       where.OR = [
-        { username: { contains: search, mode: 'insensitive' } },
-        { email: { contains: search, mode: 'insensitive' } }
+        { username: { contains: search, mode: "insensitive" } },
+        { email: { contains: search, mode: "insensitive" } },
       ];
     }
     if (role) where.role = role.toUpperCase();
-    if (isActive !== undefined) where.isActive = isActive === true || isActive === 'true';
+    if (isActive !== undefined)
+      where.isActive = isActive === true || isActive === "true";
 
     const users = await prisma.user.findMany({
       where,
-      select: { id: true, email: true, username: true, role: true, isActive: true, createdAt: true },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
       skip: (parseInt(page) - 1) * parseInt(limit),
       take: parseInt(limit),
-      orderBy: { createdAt: 'desc' }
+      orderBy: { createdAt: "desc" },
     });
 
     const total = await prisma.user.count({ where });
 
     res.status(200).json({
       success: true,
-      data: { users, pagination: { page: parseInt(page), limit: parseInt(limit), total, totalPages: Math.ceil(total / parseInt(limit)) } }
+      data: {
+        users,
+        pagination: {
+          page: parseInt(page),
+          limit: parseInt(limit),
+          total,
+          totalPages: Math.ceil(total / parseInt(limit)),
+        },
+      },
     });
-
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
@@ -74,15 +105,25 @@ export const getUserById = async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id: userId },
-      select: { id: true, username: true, email: true, role: true, isActive: true, createdAt: true, updatedAt: true }
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     });
 
-    if (!user) return res.status(404).json({ success: false, message: 'User not found' });
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
 
     res.status(200).json({ success: true, data: { user } });
-
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
@@ -96,9 +137,13 @@ export const updateUser = async (req, res) => {
     if (username) updateData.username = validateUsername(username);
     if (email) {
       updateData.email = validateEmail(email);
-      const existing = await prisma.user.findUnique({ where: { email: updateData.email } });
+      const existing = await prisma.user.findUnique({
+        where: { email: updateData.email },
+      });
       if (existing && existing.id !== userId) {
-        return res.status(409).json({ success: false, message: 'Email already taken' });
+        return res
+          .status(409)
+          .json({ success: false, message: "Email already taken" });
       }
     }
     if (role) updateData.role = role.toUpperCase();
@@ -107,11 +152,19 @@ export const updateUser = async (req, res) => {
     const user = await prisma.user.update({
       where: { id: userId },
       data: updateData,
-      select: { id: true, username: true, email: true, role: true, isActive: true, updatedAt: true }
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        role: true,
+        isActive: true,
+        updatedAt: true,
+      },
     });
 
-    res.status(200).json({ success: true, message: 'User updated', data: { user } });
-
+    res
+      .status(200)
+      .json({ success: true, message: "User updated", data: { user } });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
@@ -123,18 +176,18 @@ export const deleteUser = async (req, res) => {
     const { userId } = req.params;
 
     if (userId === req.user.userId) {
-      return res.status(403).json({ success: false, message: 'Cannot delete yourself' });
+      return res
+        .status(403)
+        .json({ success: false, message: "Cannot delete yourself" });
     }
 
     await prisma.user.delete({ where: { id: userId } });
 
-    res.status(200).json({ success: true, message: 'User deleted' });
-
+    res.status(200).json({ success: true, message: "User deleted" });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
-
 
 export const updateUserStatus = async (req, res) => {
   try {
@@ -148,31 +201,48 @@ export const updateUserStatus = async (req, res) => {
     const user = await prisma.user.update({
       where: { id: userId },
       data: updateData,
-      select: { id: true, email: true, username: true, role: true, isActive: true }
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        role: true,
+        isActive: true,
+      },
     });
 
-    res.status(200).json({ success: true, message: 'User updated', data: { user } });
-
+    res
+      .status(200)
+      .json({ success: true, message: "User updated", data: { user } });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
 export const getProfile = async (req, res) => {
-    try {
-      const user = await prisma.user.findUnique({
-        where: { id: req.user.userId },
-        select: { id: true, email: true, username: true, role: true, isActive: true, createdAt: true, updatedAt: true }
-      });
-  
-      if (!user) return res.status(404).json({ success: false, message: 'User not found' });
-  
-      res.status(200).json({ success: true, data: { user } });
-  
-    } catch (err) {
-      res.status(500).json({ success: false, message: 'Server error' });
-    }
-  };
+  try {
+    const user = await prisma.user.findUnique({
+      where: { id: req.user.id },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!user)
+      return res
+        .status(404)
+        .json({ success: false, message: "User not found" });
+
+    res.status(200).json({ success: true, data: { user } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
 
 export const updateProfile = async (req, res) => {
   try {
@@ -182,61 +252,72 @@ export const updateProfile = async (req, res) => {
     if (username) updateData.username = validateUsername(username);
     if (email) {
       updateData.email = validateEmail(email);
-      const existing = await prisma.user.findUnique({ where: { email: updateData.email } });
+      const existing = await prisma.user.findUnique({
+        where: { email: updateData.email },
+      });
       if (existing && existing.id !== req.user.userId) {
-        return res.status(409).json({ success: false, message: 'Email taken' });
+        return res.status(409).json({ success: false, message: "Email taken" });
       }
     }
 
     const user = await prisma.user.update({
-      where: { id: req.user.userId },
+      where: { id: req.user.id },
       data: updateData,
-      select: { id: true, email: true, username: true, role: true, isActive: true }
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        role: true,
+        isActive: true,
+      },
     });
 
-    res.status(200).json({ success: true, message: 'Updated', data: { user } });
-
+    res.status(200).json({ success: true, message: "Updated", data: { user } });
   } catch (err) {
     res.status(400).json({ success: false, message: err.message });
   }
 };
 
-// ============== BLOCK USER ==============  //only admin have these priviliges to block/unblock 
+// ============== BLOCK USER ==============  //only admin have these priviliges to block/unblock
 export const blockUser = async (req, res) => {
-    try {
-      const { userId } = req.params;
-  
-      if (userId === req.user.userId) {
-        return res.status(403).json({ success: false, message: 'Cannot block yourself' });
-      }
-  
-      const user = await prisma.user.update({
-        where: { id: userId },
-        data: { isActive: false },
-        select: { id: true, username: true, email: true, isActive: true }
-      });
-  
-      res.status(200).json({ success: true, message: 'User blocked', data: { user } });
-  
-    } catch (err) {
-      res.status(500).json({ success: false, message: 'Server error' });
+  try {
+    const { userId } = req.params;
+
+    if (userId === req.user.userId) {
+      return res
+        .status(403)
+        .json({ success: false, message: "Cannot block yourself" });
     }
-  };
-  
-  // ============== UNBLOCK USER ==============
-  export const unblockUser = async (req, res) => {
-    try {
-      const { userId } = req.params;
-  
-      const user = await prisma.user.update({
-        where: { id: userId },
-        data: { isActive: true },
-        select: { id: true, username: true, email: true, isActive: true }
-      });
-  
-      res.status(200).json({ success: true, message: 'User unblocked', data: { user } });
-  
-    } catch (err) {
-      res.status(500).json({ success: false, message: 'Server error' });
-    }
-  };
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { isActive: false },
+      select: { id: true, username: true, email: true, isActive: true },
+    });
+
+    res
+      .status(200)
+      .json({ success: true, message: "User blocked", data: { user } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ============== UNBLOCK USER ==============
+export const unblockUser = async (req, res) => {
+  try {
+    const { userId } = req.params;
+
+    const user = await prisma.user.update({
+      where: { id: userId },
+      data: { isActive: true },
+      select: { id: true, username: true, email: true, isActive: true },
+    });
+
+    res
+      .status(200)
+      .json({ success: true, message: "User unblocked", data: { user } });
+  } catch (err) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};

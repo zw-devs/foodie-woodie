@@ -1,88 +1,217 @@
-import * as orderService from "../services/order/order.service.js";
-import { successResponse, errorResponse } from "../utils/helper.js";
+import prisma from "../lib/prisma";
 
-// POST /api/orders
-// Body: { restaurant_id, priority, delivery_address, delivery_lat, delivery_lng, items: [{ product_id, quantity }] }
-export const placeOrder = async (req, res) => {
+// ─── 1. CREATE ORDER ───────────────────────────────
+export const createOrder = async (req, res) => {
   try {
-    const order = await orderService.placeOrder(req.user.userId, req.body);
-    return successResponse(res, order, "Order placed successfully", 201);
-  } catch (err) {
-    return errorResponse(res, err, "Failed to place order");
+    const {
+      customer_id,
+      restaurant_id,
+      delivery_address,
+      delivery_lat,
+      delivery_lng,
+      items,
+    } = req.body;
+
+    let total_amount = 0;
+    for (const item of items) {
+      const product = await prisma.product.findUnique({
+        where: { id: item.product_id },
+      });
+      total_amount += product.price * item.quantity;
+    }
+
+    const order = await prisma.order.create({
+      data: {
+        customer_id,
+        restaurant_id,
+        total_amount,
+        delivery_address,
+        delivery_lat,
+        delivery_lng,
+        items: {
+          create: items.map((i) => ({
+            product_id: i.product_id,
+            quantity: i.quantity,
+            unit_price: i.unit_price,
+          })),
+        },
+      },
+      include: { items: { include: { product: true } }, restaurant: true },
+    });
+
+    res.status(201).json({ success: true, data: order });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// GET /api/orders/my  (customer sees their own orders)
-export const getMyOrders = async (req, res) => {
-  try {
-    const orders = await orderService.getMyOrders(req.user.userId, req.query);
-    return successResponse(res, orders, "Your orders fetched");
-  } catch (err) {
-    return errorResponse(res, err, "Failed to fetch your orders");
-  }
-};
-
-// GET /api/orders/:id
-export const getOrderById = async (req, res) => {
-  try {
-    const order = await orderService.getOrderById(
-      req.params.id,
-      req.user.userId,
-      req.user.role,
-    );
-    return successResponse(res, order, "Order fetched successfully");
-  } catch (err) {
-    return errorResponse(res, err, "Failed to fetch order details");
-  }
-};
-
-// GET /api/orders  (admin only)
-// Query: ?status=pending&restaurant_id=xxx
+// ─── 2. GET ALL ORDERS ─────────────────────────────
 export const getAllOrders = async (req, res) => {
   try {
-    const orders = await orderService.getAllOrders(req.query);
-    return successResponse(res, orders, "All orders fetched");
-  } catch (err) {
-    return errorResponse(res, err, "Failed to fetch all orders");
+    const { status, page = 1, limit = 10 } = req.query;
+    const where = {};
+    if (status) where.status = status;
+
+    const orders = await prisma.order.findMany({
+      where,
+      skip: (page - 1) * limit,
+      take: parseInt(limit),
+      include: {
+        customer: { select: { username: true } },
+        restaurant: { select: { name: true } },
+        rider: { select: { username: true } },
+      },
+      orderBy: { placed_at: "desc" },
+    });
+
+    res.json({ success: true, data: orders });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// GET /api/restaurants/:restaurantId/orders  (restaurant owner)
-// Query: ?status=pending
+// ─── 3. GET ORDER BY ID ────────────────────────────  //orders and items from a specifc restaurant
+export const getOrderById = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const order = await prisma.order.findUnique({
+      where: { id },
+      include: {
+        items: { include: { product: true } },
+        customer: { select: { username: true, phone: true } },
+        restaurant: { select: { name: true, address: true } },
+        rider: { select: { username: true, phone: true } },
+        assignments: true,
+      },
+    });
+
+    if (!order)
+      return res.status(404).json({ success: false, error: "Order not found" });
+    res.json({ success: true, data: order });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ─── 5. GET RESTAURANT ORDERS ──────────────────────
 export const getRestaurantOrders = async (req, res) => {
   try {
-    const orders = await orderService.getRestaurantOrders(
-      req.params.restaurantId,
-      req.user.userId,
-      req.query,
-    );
-    return successResponse(res, orders, "Restaurant orders fetched");
-  } catch (err) {
-    return errorResponse(res, err, "Failed to fetch restaurant orders");
+    const { restaurant_id } = req.params;
+    const { status } = req.query;
+
+    const where = { restaurant_id };
+    if (status) where.status = status;
+
+    const orders = await prisma.order.findMany({
+      where,
+      include: {
+        customer: { select: { username: true, phone: true } },
+        items: { include: { product: true } },
+      },
+      orderBy: { placed_at: "desc" },
+    });
+
+    res.json({ success: true, data: orders });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// PATCH /api/orders/:id/status  (admin / restaurant_owner)
-// Body: { status: 'confirmed' | 'preparing' | 'picked_up' | 'delivered' | 'cancelled' }
+// ─── 6. UPDATE ORDER STATUS ────────────────────────
 export const updateOrderStatus = async (req, res) => {
   try {
-    const order = await orderService.updateOrderStatus(
-      req.params.id,
-      req.body.status,
-      req.user,
-    );
-    return successResponse(res, order, "Order status updated");
-  } catch (err) {
-    return errorResponse(res, err, "Failed to update order status");
+    const { id } = req.params;
+    const { status } = req.body;
+
+    const updateData = { status };
+    if (status === "delivered") updateData.delivered_at = new Date();
+
+    const order = await prisma.order.update({
+      where: { id },
+      data: updateData,
+      include: { items: true, customer: true, restaurant: true },
+    });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
-// POST /api/orders/:id/cancel  (customer cancels their own order)
+// ─── 7. CANCEL ORDER ────────────────────────────────
 export const cancelOrder = async (req, res) => {
   try {
-    const order = await orderService.cancelOrder(req.params.id, req.user.userId);
-    return successResponse(res, order, "Order cancelled");
-  } catch (err) {
-    return errorResponse(res, err, "Failed to cancel order");
+    const { id } = req.params;
+    const { cancellation_reason } = req.body;
+
+    const order = await prisma.order.update({
+      where: { id },
+      data: {
+        status: "cancelled",
+        cancelled_at: new Date(),
+        cancellation_reason,
+      },
+      include: { items: true },
+    });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ─── 8. ASSIGN RIDER ────────────────────────────────
+export const assignRider = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { rider_id } = req.body;
+
+    const order = await prisma.order.update({
+      where: { id },
+      data: { rider_id, status: "confirmed" },
+    });
+
+    await prisma.rider_assignment.create({
+      data: { rider_id, order_id: id, status: "assigned" },
+    });
+
+    res.json({ success: true, data: order });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// ─── 9. GET RIDER ORDERS ───────────────────────────
+export const getRiderOrders = async (req, res) => {
+  try {
+    const { rider_id } = req.params;
+    const { status } = req.query;
+
+    const where = { rider_id };
+    if (status) where.status = status;
+
+    const orders = await prisma.order.findMany({
+      where,
+      include: {
+        restaurant: {
+          select: {
+            name: true,
+            address: true,
+            latitude: true,
+            longitude: true,
+          },
+        },
+        customer: {
+          select: { username: true, phone: true, delivery_address: true },
+        },
+        items: { include: { product: { select: { name: true } } } },
+      },
+      orderBy: { placed_at: "desc" },
+    });
+
+    res.json({ success: true, data: orders });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };
